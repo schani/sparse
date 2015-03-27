@@ -31,6 +31,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <assert.h>
 
 #include "lib.h"
 #include "allocate.h"
@@ -288,45 +289,331 @@ static int has_permission(struct symbol *sym, struct permission *permission)
 	return 0;
 }
 
-static void check_call_permission(struct symbol *caller_sym, struct instruction *insn, struct permission *caller_permission)
+static void check_call_symbol_permission(struct position pos, struct symbol *caller, struct symbol *callee)
 {
-	pseudo_t fn = insn->func;
+	struct permission *caller_permission;
+	FOR_EACH_PTR(caller->ctype.permissions, caller_permission) {
+		if (!has_permission(callee, caller_permission)) {
+			warning(pos, "function %s", show_ident(caller->ident));
+			warning(pos, "  calls function %s", show_ident(callee->ident));
+			warning(pos, "  without permission %s", show_ident(caller_permission->name));
+		}
+	} END_FOR_EACH_PTR(caller_permission);
+}
 
-	if (fn->type != PSEUDO_SYM) {
-		warning(insn->pos, "function %s makes call to non-symbol function", show_ident(caller_sym->ident));
-		return;
+static void check_permission_initializer(struct expression *initializer, struct symbol *containing_fn);
+static void check_permission_expression(struct expression *expr, struct symbol *containing_fn);
+static void check_permission_statement(struct statement *stmt, struct symbol *containing_fn);
+
+static void check_permission_position(struct expression *pos, struct symbol *containing_fn)
+{
+	struct expression *init_expr = pos->init_expr;
+	check_permission_initializer(init_expr, containing_fn);
+}
+
+static void check_permission_initializer(struct expression *initializer, struct symbol *containing_fn)
+{
+	switch (initializer->type) {
+	case EXPR_INITIALIZER: {
+		struct expression *expr;
+		FOR_EACH_PTR(initializer->expr_list, expr) {
+			check_permission_initializer(expr, containing_fn);
+		} END_FOR_EACH_PTR(expr);
+		break;
 	}
-
-	if (!has_permission(fn->sym, caller_permission)) {
-		warning(insn->pos, "function %s", show_ident(caller_sym->ident));
-		warning(insn->pos, "  calls function %s", show_ident(fn->sym->ident));
-		warning(insn->pos, "  without permission %s", show_ident(caller_permission->name));
+	case EXPR_POS:
+		check_permission_position(initializer, containing_fn);
+		break;
+	default:
+		check_permission_expression(initializer, containing_fn);
+		break;
 	}
 }
 
-static void check_permission(struct entrypoint *ep)
+static void check_permission_one_symbol(struct symbol *sym, struct symbol *containing_fn)
 {
-	struct symbol *sym = ep->name;
-	struct permission *permission;
+	if (!sym->initializer)
+		return;
+	check_permission_initializer(sym->initializer, containing_fn);
+}
 
-	FOR_EACH_PTR(sym->ctype.permissions, permission) {
-		struct basic_block *bb;
-		FOR_EACH_PTR(ep->bbs, bb) {
-			struct instruction *insn;
-			FOR_EACH_PTR(bb->insns, insn) {
-				if (!insn->bb)
-					continue;
-				switch (insn->opcode) {
-					case OP_CALL:
-					case OP_INLINED_CALL:
-						check_call_permission(sym, insn, permission);
-						break;
-					default:
-						break;
-				}
-			} END_FOR_EACH_PTR(insn);
-		} END_FOR_EACH_PTR(bb);
-	} END_FOR_EACH_PTR(permission);
+static void check_permission_declaration(struct statement *stmt, struct symbol *containing_fn)
+{
+	struct symbol *sym;
+	FOR_EACH_PTR(stmt->declaration, sym) {
+		check_permission_one_symbol(sym, containing_fn);
+	} END_FOR_EACH_PTR(sym);
+}
+
+static void check_permission_assignment(struct expression *expr, struct symbol *containing_fn)
+{
+	struct expression *target = expr->left;
+	struct expression *src = expr->right;
+	check_permission_expression(src, containing_fn);
+	check_permission_expression(target, containing_fn);
+	/* FIXME: check assignments to function pointers */
+}
+
+static void check_permission_call_expression(struct expression *expr, struct symbol *containing_fn)
+{
+	struct expression *arg, *fn;
+
+	FOR_EACH_PTR(expr->args, arg) {
+		check_permission_expression(arg, containing_fn);
+		/* FIXME: check type for function pointer arguments */
+	} END_FOR_EACH_PTR(arg);
+
+	fn = expr->fn;
+	if (fn->type == EXPR_PREOP) {
+		if (fn->unop->type == EXPR_SYMBOL) {
+			struct symbol *sym = fn->unop->symbol;
+			if (sym->ctype.base_type->type == SYM_FN)
+				fn = fn->unop;
+		}
+	}
+
+	if (fn->type == EXPR_SYMBOL) {
+		check_call_symbol_permission(expr->pos, containing_fn, fn->symbol);
+	} else {
+		check_permission_expression(fn, containing_fn);
+		warning(expr->pos, "function %s makes call to non-symbol function", show_ident(containing_fn->ident));
+	}
+}
+
+static void check_permission_expression(struct expression *expr, struct symbol *containing_fn)
+{
+	switch (expr->type) {
+	case EXPR_SYMBOL:
+		check_permission_one_symbol(expr->symbol, containing_fn);
+		break;
+
+	case EXPR_VALUE: case EXPR_STRING: case EXPR_FVALUE: case EXPR_LABEL:
+		break;
+
+	case EXPR_STATEMENT:
+		check_permission_statement(expr->statement, containing_fn);
+		break;
+
+	case EXPR_CALL:
+		check_permission_call_expression(expr, containing_fn);
+		break;
+
+	case EXPR_BINOP:
+	case EXPR_LOGICAL:
+	case EXPR_COMPARE:
+	case EXPR_COMMA:
+		check_permission_expression(expr->left, containing_fn);
+		check_permission_expression(expr->right, containing_fn);
+		break;
+
+	case EXPR_SELECT:
+		assert(expr->cond_true);
+	case EXPR_CONDITIONAL:
+		check_permission_expression(expr->conditional, containing_fn);
+		if (expr->cond_true)
+			check_permission_expression(expr->cond_true, containing_fn);
+		check_permission_expression(expr->cond_false, containing_fn);
+		break;
+
+	case EXPR_ASSIGNMENT:
+		check_permission_assignment(expr, containing_fn);
+		break;
+
+	case EXPR_PREOP:
+	case EXPR_POSTOP:
+		check_permission_expression(expr->unop, containing_fn);
+		break;
+
+	case EXPR_CAST:
+	case EXPR_FORCE_CAST:
+	case EXPR_IMPLIED_CAST:
+		check_permission_expression(expr->cast_expression, containing_fn);
+		break;
+
+	case EXPR_SLICE:
+		check_permission_expression(expr->base, containing_fn);
+		break;
+
+	case EXPR_INITIALIZER:
+	case EXPR_POS:
+		warning(expr->pos, "unexpected initializer expression (%d %d)", expr->type, expr->op);
+		break;
+	default:
+		warning(expr->pos, "unknown expression (%d %d)", expr->type, expr->op);
+		break;
+	}
+}
+
+static void check_permission_asm_statement(struct statement *stmt, struct symbol *containing_fn)
+{
+	int state;
+	struct expression *expr;
+
+	FOR_EACH_PTR(stmt->asm_inputs, expr) {
+		switch (state) {
+		case 0:	/* Identifier */
+			state = 1;
+			continue;
+
+		case 1:	/* Constraint */
+			state = 2;
+			continue;
+
+		case 2:	/* Expression */
+			state = 0;
+			check_permission_expression(expr, containing_fn);
+			continue;
+		}
+	} END_FOR_EACH_PTR(expr);
+
+	FOR_EACH_PTR(stmt->asm_outputs, expr) {
+		switch (state) {
+		case 0:	/* Identifier */
+			state = 1;
+			continue;
+
+		case 1:	/* Constraint */
+			state = 2;
+			continue;
+
+		case 2:	/* Expression */
+			state = 0;
+			check_permission_expression(expr, containing_fn);
+			continue;
+		}
+	} END_FOR_EACH_PTR(expr);
+}
+
+static void check_permission_return(struct statement *stmt, struct symbol *containing_fn)
+{
+	check_permission_expression(stmt->expression, containing_fn);
+	/* FIXME: Check for function pointer return type. */
+}
+
+static void check_permission_inlined_call(struct statement *stmt, struct symbol *containing_fn)
+{
+	check_call_symbol_permission(stmt->pos, containing_fn, stmt->inline_fn);
+}
+
+static void check_permission_compound_statement(struct statement *stmt, struct symbol *containing_fn)
+{
+	struct statement *s;
+
+	FOR_EACH_PTR(stmt->stmts, s) {
+		check_permission_statement(s, containing_fn);
+	} END_FOR_EACH_PTR(s);
+}
+
+static void check_permission_switch(struct statement *stmt, struct symbol *containing_fn)
+{
+	check_permission_expression(stmt->switch_expression, containing_fn);
+	check_permission_statement(stmt->switch_statement, containing_fn);
+}
+
+static void check_permission_iterator(struct statement *stmt, struct symbol *containing_fn)
+{
+	struct statement  *pre_statement = stmt->iterator_pre_statement;
+	struct expression *pre_condition = stmt->iterator_pre_condition;
+	struct statement  *statement = stmt->iterator_statement;
+	struct statement  *post_statement = stmt->iterator_post_statement;
+	struct expression *post_condition = stmt->iterator_post_condition;
+
+	check_permission_statement(pre_statement, containing_fn);
+	check_permission_expression(pre_condition, containing_fn);
+	check_permission_statement(statement, containing_fn);
+	check_permission_statement(post_statement, containing_fn);
+	check_permission_expression(post_condition, containing_fn);
+}
+
+static void check_permission_statement(struct statement *stmt, struct symbol *containing_fn)
+{
+	switch (stmt->type) {
+		case STMT_NONE:
+		case STMT_RANGE:
+		case STMT_CONTEXT:
+			break;
+
+		case STMT_DECLARATION:
+			check_permission_declaration(stmt, containing_fn);
+			break;
+
+		case STMT_EXPRESSION:
+			check_permission_expression(stmt->expression, containing_fn);
+			break;
+
+		case STMT_ASM:
+			check_permission_asm_statement(stmt, containing_fn);
+			break;
+
+		case STMT_RETURN:
+			check_permission_return(stmt, containing_fn);
+			break;
+
+		case STMT_CASE:
+			check_permission_statement(stmt->case_statement, containing_fn);
+			break;
+
+		case STMT_LABEL: {
+			struct symbol *label = stmt->label_identifier;
+
+			assert(label->used);
+			if (label->used) {
+				check_permission_statement(stmt->label_statement, containing_fn);
+			}
+			break;
+		}
+
+		case STMT_GOTO: {
+			struct expression *expr;
+
+			if (stmt->goto_label)
+				break;
+
+			expr = stmt->goto_expression;
+			assert(expr);
+			if (!expr)
+				break;
+
+			/* This can happen as part of simplification */
+			if (expr->type == EXPR_LABEL)
+				break;
+
+			check_permission_expression(expr, containing_fn);
+			break;
+		}
+
+		case STMT_COMPOUND:
+			if (stmt->inline_fn)
+				check_permission_inlined_call(stmt, containing_fn);
+			else
+				check_permission_compound_statement(stmt, containing_fn);
+			break;
+
+		case STMT_IF:
+			check_permission_expression(stmt->if_conditional, containing_fn);
+			check_permission_statement(stmt->if_true, containing_fn);
+
+			if (stmt->if_false)
+				check_permission_statement(stmt->if_false, containing_fn);
+			break;
+
+		case STMT_SWITCH:
+			check_permission_switch(stmt, containing_fn);
+			break;
+
+		case STMT_ITERATOR:
+			check_permission_iterator(stmt, containing_fn);
+
+		default:
+			assert(0);
+	}
+}
+
+static void check_permission_symbol(struct symbol *sym)
+{
+	struct symbol *base_type = sym->ctype.base_type;
+	assert(base_type->type == SYM_FN);
+	check_permission_statement(base_type->stmt, sym);
 }
 
 static void propagate_permissions(struct symbol *sym)
@@ -365,7 +652,7 @@ static void check_symbols(struct symbol_list *list)
 				show_entry(ep);
 
 			check_context(ep);
-			check_permission(ep);
+			check_permission_symbol(sym);
 		}
 	} END_FOR_EACH_PTR(sym);
 
