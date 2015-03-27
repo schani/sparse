@@ -130,6 +130,7 @@ void show_allocations(struct allocator_struct *x)
 ALLOCATOR(ident, "identifiers");
 ALLOCATOR(token, "tokens");
 ALLOCATOR(context, "contexts");
+ALLOCATOR(permission, "permissions");
 ALLOCATOR(symbol, "symbols");
 ALLOCATOR(expression, "expressions");
 ALLOCATOR(statement, "statements");

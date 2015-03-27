@@ -79,7 +79,7 @@ typedef struct token *attr_t(struct token *, struct symbol *,
 
 static attr_t
 	attribute_packed, attribute_aligned, attribute_modifier,
-	attribute_address_space, attribute_context,
+	attribute_address_space, attribute_context, attribute_permission,
 	attribute_designated_init,
 	attribute_transparent_union, ignore_attribute,
 	attribute_mode, attribute_force;
@@ -336,6 +336,10 @@ static struct symbol_op context_op = {
 	.attribute = attribute_context,
 };
 
+static struct symbol_op permission_op = {
+	.attribute = attribute_permission,
+};
+
 static struct symbol_op designated_init_op = {
 	.attribute = attribute_designated_init,
 };
@@ -476,6 +480,7 @@ static struct init_keyword {
 	{ "address_space",NS_KEYWORD,	.op = &address_space_op },
 	{ "mode",	NS_KEYWORD,	.op = &mode_op },
 	{ "context",	NS_KEYWORD,	.op = &context_op },
+	{ "permission",	NS_KEYWORD,	.op = &permission_op },
 	{ "designated_init",	NS_KEYWORD,	.op = &designated_init_op },
 	{ "__transparent_union__",	NS_KEYWORD,	.op = &transparent_union_op },
 	{ "noreturn",	NS_KEYWORD,	MOD_NORETURN,	.op = &attr_mod_op },
@@ -1194,6 +1199,24 @@ static struct token *attribute_context(struct token *token, struct symbol *attr,
 		add_ptr_list(&ctx->ctype.contexts, context);
 
 	token = expect(token, ')', "after context attribute");
+	return token;
+}
+
+static struct token *attribute_permission(struct token *token, struct symbol *attr, struct decl_state *ctx)
+{
+	struct permission *permission = alloc_permission();
+
+	token = expect(token, '(', "after permission attribute");
+	if (token_type(token) != TOKEN_IDENT) {
+		sparse_error(token->pos, "expected permission name");
+		return token;
+	}
+	permission->name = token->ident;
+	token = token->next;
+	token = expect(token, ')', "after permission attribute");
+
+	add_ptr_list(&ctx->ctype.permissions, permission);
+
 	return token;
 }
 

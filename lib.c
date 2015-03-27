@@ -980,6 +980,9 @@ void create_builtin_stream(void)
 	add_pre_buffer("#weak_define __WCHAR_MAX__ " STRINGIFY(__WCHAR_MAX__) "\n");
 	add_pre_buffer("#weak_define __SIZEOF_POINTER__ " STRINGIFY(__SIZEOF_POINTER__) "\n");
 	add_pre_buffer("#weak_define __CHAR_BIT__ " STRINGIFY(__CHAR_BIT__) "\n");
+
+	/* Stupid clang hack */
+	add_pre_buffer("#define __has_include_next(x) 0\n");
 }
 
 static struct symbol_list *sparse_tokenstream(struct token *token)

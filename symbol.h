@@ -97,10 +97,20 @@ extern struct context *alloc_context(void);
 
 DECLARE_PTR_LIST(context_list, struct context);
 
+struct permission {
+	struct ident *name;
+};
+
+extern struct permission *alloc_permission(void);
+
+DECLARE_PTR_LIST(permission_list, struct permission);
+
+
 struct ctype {
 	unsigned long modifiers;
 	unsigned long alignment;
 	struct context_list *contexts;
+	struct permission_list *permissions;
 	unsigned int as;
 	struct symbol *base_type;
 };

@@ -73,6 +73,11 @@ struct context *alloc_context(void)
 	return __alloc_context(0);
 }
 
+struct permission *alloc_permission(void)
+{
+	return __alloc_permission(0);
+}
+
 struct symbol *alloc_symbol(struct position pos, int type)
 {
 	struct symbol *sym = __alloc_symbol(0);
@@ -217,6 +222,8 @@ static struct symbol *examine_base_type(struct symbol *sym)
 	sym->ctype.modifiers |= base_type->ctype.modifiers & MOD_PTRINHERIT;
 	concat_ptr_list((struct ptr_list *)base_type->ctype.contexts,
 			(struct ptr_list **)&sym->ctype.contexts);
+	concat_ptr_list((struct ptr_list *)base_type->ctype.permissions,
+			(struct ptr_list **)&sym->ctype.permissions);
 	if (base_type->type == SYM_NODE) {
 		base_type = base_type->ctype.base_type;
 		sym->ctype.base_type = base_type;
@@ -281,6 +288,8 @@ void merge_type(struct symbol *sym, struct symbol *base_type)
 	sym->ctype.modifiers |= (base_type->ctype.modifiers & ~MOD_STORAGE);
 	concat_ptr_list((struct ptr_list *)base_type->ctype.contexts,
 	                (struct ptr_list **)&sym->ctype.contexts);
+	concat_ptr_list((struct ptr_list *)base_type->ctype.permissions,
+			(struct ptr_list **)&sym->ctype.permissions);
 	sym->ctype.base_type = base_type->ctype.base_type;
 	if (sym->ctype.base_type->type == SYM_NODE)
 		merge_type(sym, sym->ctype.base_type);

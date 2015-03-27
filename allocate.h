@@ -65,6 +65,7 @@ extern void show_allocations(struct allocator_struct *);
 DECLARE_ALLOCATOR(ident);
 DECLARE_ALLOCATOR(token);
 DECLARE_ALLOCATOR(context);
+DECLARE_ALLOCATOR(permission);
 DECLARE_ALLOCATOR(symbol);
 DECLARE_ALLOCATOR(expression);
 DECLARE_ALLOCATOR(statement);
