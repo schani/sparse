@@ -249,6 +249,8 @@ sub add_specs {
 	    " -D'_fastcall=__attribute__((__fastcall__))'" .
 	    " -D'__fastcall=__attribute__((__fastcall__))'" .
 	    " -D'__declspec(x)=__attribute__((x))'";
+    } elsif ($spec eq 'darwin') {
+	return &add_specs ('unix');
     } elsif ($spec eq 'i86') {
 	return (' -Di386=1 -D__i386=1 -D__i386__=1' .
 		&integer_types (8, 16, 32, $m64 ? 64 : 32, 64) .
