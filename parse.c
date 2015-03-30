@@ -1778,6 +1778,7 @@ static struct token *pointer(struct token *token, struct decl_state *ctx)
 		ptr->ctype.base_type = ctx->ctype.base_type;
 		ptr->ctype.as = ctx->ctype.as;
 		ptr->ctype.contexts = ctx->ctype.contexts;
+		ptr->ctype.permissions = ctx->ctype.permissions;
 		ctx->ctype.modifiers = 0;
 		ctx->ctype.base_type = ptr;
 		ctx->ctype.as = 0;

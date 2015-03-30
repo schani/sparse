@@ -295,7 +295,10 @@ static void check_call_symbol_permission(struct position pos, struct symbol *cal
 	FOR_EACH_PTR(caller->ctype.permissions, caller_permission) {
 		if (!has_permission(callee, caller_permission)) {
 			warning(pos, "function %s", show_ident(caller->ident));
-			warning(pos, "  calls function %s", show_ident(callee->ident));
+			if (callee->ident)
+				warning(pos, "  calls function %s", show_ident(callee->ident));
+			else
+				warning(pos, "  call function pointer");
 			warning(pos, "  without permission %s", show_ident(caller_permission->name));
 		}
 	} END_FOR_EACH_PTR(caller_permission);
@@ -357,6 +360,7 @@ static void check_permission_assignment(struct expression *expr, struct symbol *
 static void check_permission_call_expression(struct expression *expr, struct symbol *containing_fn)
 {
 	struct expression *arg, *fn;
+	struct symbol *callee_symbol = NULL;
 
 	FOR_EACH_PTR(expr->args, arg) {
 		check_permission_expression(arg, containing_fn);
@@ -367,13 +371,17 @@ static void check_permission_call_expression(struct expression *expr, struct sym
 	if (fn->type == EXPR_PREOP) {
 		if (fn->unop->type == EXPR_SYMBOL) {
 			struct symbol *sym = fn->unop->symbol;
-			if (sym->ctype.base_type->type == SYM_FN)
-				fn = fn->unop;
+			enum type type = sym->ctype.base_type->type;
+			if (type == SYM_FN) {
+				callee_symbol = fn->unop->symbol;
+			} else if (type == SYM_PTR && sym->ctype.base_type->ctype.base_type->type == SYM_FN) {
+				callee_symbol = fn->unop->symbol->ctype.base_type;
+			}
 		}
 	}
 
-	if (fn->type == EXPR_SYMBOL) {
-		check_call_symbol_permission(expr->pos, containing_fn, fn->symbol);
+	if (callee_symbol) {
+		check_call_symbol_permission(expr->pos, containing_fn, callee_symbol);
 	} else {
 		check_permission_expression(fn, containing_fn);
 		warning(expr->pos, "function %s makes call to non-symbol function", show_ident(containing_fn->ident));
