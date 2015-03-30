@@ -293,7 +293,19 @@ static void check_call_symbol_permission(struct position pos, struct symbol *cal
 {
 	struct permission *caller_permission;
 	FOR_EACH_PTR(caller->ctype.permissions, caller_permission) {
-		if (!has_permission(callee, caller_permission)) {
+		struct symbol *type = callee;
+		/*
+		 * FIXME: We shouldn't have to do this hack, but
+		 * sometimes the type of a function expression has the
+		 * permission only in its base type, such as when the
+		 * function is a member of a struct.
+		 */
+		while (type) {
+			if (has_permission(type, caller_permission))
+				break;
+			type = type->ctype.base_type;
+		}
+		if (!type) {
 			warning(pos, "function %s", show_ident(caller->ident));
 			if (callee->ident)
 				warning(pos, "  calls function %s", show_ident(callee->ident));
@@ -368,17 +380,7 @@ static void check_permission_call_expression(struct expression *expr, struct sym
 	} END_FOR_EACH_PTR(arg);
 
 	fn = expr->fn;
-	if (fn->type == EXPR_PREOP) {
-		if (fn->unop->type == EXPR_SYMBOL) {
-			struct symbol *sym = fn->unop->symbol;
-			enum type type = sym->ctype.base_type->type;
-			if (type == SYM_FN) {
-				callee_symbol = fn->unop->symbol;
-			} else if (type == SYM_PTR && sym->ctype.base_type->ctype.base_type->type == SYM_FN) {
-				callee_symbol = fn->unop->symbol->ctype.base_type;
-			}
-		}
-	}
+	callee_symbol = fn->ctype;
 
 	if (callee_symbol) {
 		check_call_symbol_permission(expr->pos, containing_fn, callee_symbol);
