@@ -392,9 +392,13 @@ static void check_permission_call_expression(struct expression *expr, struct sym
 
 static void check_permission_expression(struct expression *expr, struct symbol *containing_fn)
 {
+	if (!expr)
+		return;
+
 	switch (expr->type) {
 	case EXPR_SYMBOL:
-		check_permission_one_symbol(expr->symbol, containing_fn);
+		if (expr->symbol)
+			check_permission_one_symbol(expr->symbol, containing_fn);
 		break;
 
 	case EXPR_VALUE: case EXPR_STRING: case EXPR_FVALUE: case EXPR_LABEL:
@@ -420,8 +424,7 @@ static void check_permission_expression(struct expression *expr, struct symbol *
 		assert(expr->cond_true);
 	case EXPR_CONDITIONAL:
 		check_permission_expression(expr->conditional, containing_fn);
-		if (expr->cond_true)
-			check_permission_expression(expr->cond_true, containing_fn);
+		check_permission_expression(expr->cond_true, containing_fn);
 		check_permission_expression(expr->cond_false, containing_fn);
 		break;
 
@@ -510,7 +513,8 @@ static void check_permission_compound_statement(struct statement *stmt, struct s
 	struct statement *s;
 
 	FOR_EACH_PTR(stmt->stmts, s) {
-		check_permission_statement(s, containing_fn);
+		if (s)
+			check_permission_statement(s, containing_fn);
 	} END_FOR_EACH_PTR(s);
 }
 
@@ -528,10 +532,12 @@ static void check_permission_iterator(struct statement *stmt, struct symbol *con
 	struct statement  *post_statement = stmt->iterator_post_statement;
 	struct expression *post_condition = stmt->iterator_post_condition;
 
-	check_permission_statement(pre_statement, containing_fn);
+	if (pre_statement)
+		check_permission_statement(pre_statement, containing_fn);
 	check_permission_expression(pre_condition, containing_fn);
 	check_permission_statement(statement, containing_fn);
-	check_permission_statement(post_statement, containing_fn);
+	if (post_statement)
+		check_permission_statement(post_statement, containing_fn);
 	check_permission_expression(post_condition, containing_fn);
 }
 
@@ -564,12 +570,7 @@ static void check_permission_statement(struct statement *stmt, struct symbol *co
 			break;
 
 		case STMT_LABEL: {
-			struct symbol *label = stmt->label_identifier;
-
-			assert(label->used);
-			if (label->used) {
-				check_permission_statement(stmt->label_statement, containing_fn);
-			}
+			check_permission_statement(stmt->label_statement, containing_fn);
 			break;
 		}
 
@@ -580,7 +581,6 @@ static void check_permission_statement(struct statement *stmt, struct symbol *co
 				break;
 
 			expr = stmt->goto_expression;
-			assert(expr);
 			if (!expr)
 				break;
 
@@ -613,6 +613,7 @@ static void check_permission_statement(struct statement *stmt, struct symbol *co
 
 		case STMT_ITERATOR:
 			check_permission_iterator(stmt, containing_fn);
+			break;
 
 		default:
 			assert(0);
