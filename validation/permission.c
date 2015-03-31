@@ -83,19 +83,41 @@ calls_indirect_from_struct (int x)
 static int GOOD
 calls_indirect_but_not_good_from_struct (int x)
 {
-	return struct_with_fn_ptr.not_good_fn_ptr(x);
+	return struct_with_fn_ptr.not_good_fn_ptr(x); /* bad */
+}
+
+static int GOOD
+calls_non_good_argument (not_good_fn_t fn, int x)
+{
+	return fn(x);		/* bad */
+}
+
+static int GOOD
+calls_good_argument (good_fn_t fn, int x)
+{
+	return fn(x);
 }
 
 int
 main (void)
 {
 	char bla [32];
+	struct_with_fn_ptr_t *struct_ptr = &struct_with_fn_ptr;
+
 	good_fn_ptr = doesnt_call;
 	not_good_fn_ptr = doesnt_call;
-	struct_with_fn_ptr.good_fn_ptr = good_but_not_declared; /* bad */
-	struct_with_fn_ptr.not_good_fn_ptr = good_but_not_declared;
+
 	good_fn_ptr = good_but_not_declared; /* bad */
 	good_fn_ptr = not_good_fn_ptr;	     /* bad */
+
+	struct_with_fn_ptr.good_fn_ptr = good_but_not_declared; /* bad */
+	struct_with_fn_ptr.not_good_fn_ptr = good_but_not_declared;
+
+	struct_ptr->good_fn_ptr = good_but_not_declared; /* bad */
+	struct_ptr->not_good_fn_ptr = good_but_not_declared;
+
+	calls_good_argument (good_but_not_declared, 1); /* bad */
+
 	my_strcpy (bla, "bla");
 	bla [2] += declared_but_not_good (1) + declared_but_calls_inline_not_good (1);
 	return bla [2] != 'e';
@@ -116,5 +138,29 @@ permission.c:74:31: warning:   without permission good
 permission.c:86:50: warning: function calls_indirect_but_not_good_from_struct
 permission.c:86:50: warning:   calls function not_good_fn_ptr
 permission.c:86:50: warning:   without permission good
+permission.c:92:18: warning: function calls_non_good_argument
+permission.c:92:18: warning:   calls function fn
+permission.c:92:18: warning:   without permission good
+permission.c:110:21: warning: function good_fn_ptr
+permission.c:110:21: warning:   calls function good_but_not_declared
+permission.c:110:21: warning:   without permission good
+permission.c:111:21: warning: function good_fn_ptr
+permission.c:111:21: warning:   calls function not_good_fn_ptr
+permission.c:111:21: warning:   without permission good
+permission.c:113:40: warning: function good_fn_ptr
+permission.c:113:40: warning:   calls function good_but_not_declared
+permission.c:113:40: warning:   without permission good
+permission.c:113:40: warning: function good_fn_ptr
+permission.c:113:40: warning:   calls function good_but_not_declared
+permission.c:113:40: warning:   without permission good
+permission.c:116:33: warning: function good_fn_ptr
+permission.c:116:33: warning:   calls function good_but_not_declared
+permission.c:116:33: warning:   without permission good
+permission.c:116:33: warning: function good_fn_ptr
+permission.c:116:33: warning:   calls function good_but_not_declared
+permission.c:116:33: warning:   without permission good
+permission.c:119:30: warning: function fn
+permission.c:119:30: warning:   calls function good_but_not_declared
+permission.c:119:30: warning:   without permission good
  * check-error-end
  */

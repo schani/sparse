@@ -272,6 +272,30 @@ static void check_context(struct entrypoint *ep)
 	check_bb_context(ep, ep->entry->bb, in_context, out_context);
 }
 
+static struct permission_list* gather_permissions (struct symbol *sym)
+{
+	struct permission_list *list = NULL;
+	/*
+	 * FIXME: We shouldn't have to do this hack, but sometimes the
+	 * type of a function expression has the permission only in
+	 * its base type, such as when the function is a member of a
+	 * struct.
+	 */
+	for (;;) {
+		struct permission *perm;
+		concat_ptr_list((struct ptr_list *)sym->ctype.permissions,
+				(struct ptr_list **)&list);
+
+		if (sym->type == SYM_NODE)
+			sym = sym->ctype.base_type;
+		else if (sym->type == SYM_PTR)
+			sym = get_base_type(sym);
+		else
+			break;
+	}
+	return list;
+}
+
 static int idents_equal(struct ident *i1, struct ident *i2)
 {
 	if (i1->len != i2->len)
@@ -279,10 +303,10 @@ static int idents_equal(struct ident *i1, struct ident *i2)
 	return !strncmp(i1->name, i2->name, i1->len);
 }
 
-static int has_permission(struct symbol *sym, struct permission *permission)
+static int has_permission(struct permission_list *list, struct permission *permission)
 {
 	struct permission *sym_permission;
-	FOR_EACH_PTR(sym->ctype.permissions, sym_permission) {
+	FOR_EACH_PTR(list, sym_permission) {
 		if (idents_equal(permission->name, sym_permission->name))
 			return 1;
 	} END_FOR_EACH_PTR(sym_permission);
@@ -291,21 +315,18 @@ static int has_permission(struct symbol *sym, struct permission *permission)
 
 static void check_call_symbol_permission(struct position pos, struct symbol *caller, struct symbol *callee)
 {
+	struct permission_list *caller_list;
+	struct permission_list *callee_list;
 	struct permission *caller_permission;
-	FOR_EACH_PTR(caller->ctype.permissions, caller_permission) {
-		struct symbol *type = callee;
-		/*
-		 * FIXME: We shouldn't have to do this hack, but
-		 * sometimes the type of a function expression has the
-		 * permission only in its base type, such as when the
-		 * function is a member of a struct.
-		 */
-		while (type) {
-			if (has_permission(type, caller_permission))
-				break;
-			type = type->ctype.base_type;
-		}
-		if (!type) {
+
+	if (!caller || !callee)
+		return;
+
+	caller_list = gather_permissions(caller);
+	callee_list = gather_permissions(callee);
+
+	FOR_EACH_PTR(caller_list, caller_permission) {
+		if (!has_permission(callee_list, caller_permission)) {
 			warning(pos, "function %s", show_ident(caller->ident));
 			if (callee->ident)
 				warning(pos, "  calls function %s", show_ident(callee->ident));
@@ -314,6 +335,9 @@ static void check_call_symbol_permission(struct position pos, struct symbol *cal
 			warning(pos, "  without permission %s", show_ident(caller_permission->name));
 		}
 	} END_FOR_EACH_PTR(caller_permission);
+
+	free_ptr_list(&caller_list);
+	free_ptr_list(&callee_list);
 }
 
 static void check_permission_initializer(struct expression *initializer, struct symbol *containing_fn);
@@ -360,32 +384,87 @@ static void check_permission_declaration(struct statement *stmt, struct symbol *
 	} END_FOR_EACH_PTR(sym);
 }
 
+static struct symbol* get_rhs_symbol (struct expression *src)
+{
+	if (src->type == EXPR_SYMBOL) {
+		return src->symbol;
+	} else if (src->type == EXPR_PREOP && src->op == '*') {
+		if (src->unop->type == EXPR_SYMBOL)
+			return src->unop->symbol;
+	}
+	return src->ctype;
+}
+
 static void check_permission_assignment(struct expression *expr, struct symbol *containing_fn)
 {
 	struct expression *target = expr->left;
 	struct expression *src = expr->right;
+	struct symbol *src_symbol = NULL;
+	struct symbol *target_symbol = NULL;
+
 	check_permission_expression(src, containing_fn);
 	check_permission_expression(target, containing_fn);
-	/* FIXME: check assignments to function pointers */
+
+	if (!src || !target)
+		return;
+
+	src_symbol = get_rhs_symbol(src);
+
+	if (target->type == EXPR_PREOP && target->op == '*') {
+		if (target->unop->type == EXPR_SYMBOL) {
+			target_symbol = target->unop->symbol;
+		} else if (target->unop->type == EXPR_BINOP && target->unop->op == '+') {
+			target_symbol = target->ctype;
+		}
+	}
+
+	if (src_symbol && target_symbol) {
+		check_call_symbol_permission(expr->pos, target_symbol, src_symbol);
+	} else {
+		//warning(expr->pos, "could not get type information for assignment");
+	}
 }
 
 static void check_permission_call_expression(struct expression *expr, struct symbol *containing_fn)
 {
-	struct expression *arg, *fn;
-	struct symbol *callee_symbol = NULL;
+	struct expression *arg;
+	struct symbol *callee_symbol = expr->fn->ctype;
+	struct symbol *fn_symbol, *argtype;
+	struct symbol_list *argument_types;
 
+	fn_symbol = callee_symbol;
+	if (!fn_symbol)
+		return;
+
+	if (fn_symbol->type == SYM_NODE)
+		fn_symbol = fn_symbol->ctype.base_type;
+	if (fn_symbol->type == SYM_PTR)
+		fn_symbol = get_base_type(fn_symbol);
+	if (fn_symbol->type != SYM_FN) {
+		sparse_error(expr->pos, "not a function %s", show_ident(callee_symbol->ident));
+		return;
+	}
+	argument_types = fn_symbol->arguments;
+
+	PREPARE_PTR_LIST(argument_types, argtype);
 	FOR_EACH_PTR(expr->args, arg) {
-		check_permission_expression(arg, containing_fn);
-		/* FIXME: check type for function pointer arguments */
-	} END_FOR_EACH_PTR(arg);
+		struct symbol *arg_symbol = get_rhs_symbol(arg);
 
-	fn = expr->fn;
-	callee_symbol = fn->ctype;
+		check_permission_expression(arg, containing_fn);
+
+		if (arg_symbol)
+			check_call_symbol_permission(arg->pos, argtype, arg_symbol);
+		else
+			warning(arg->pos, "can't check argument types");
+
+		NEXT_PTR_LIST(argtype);
+	} END_FOR_EACH_PTR(arg);
+	FINISH_PTR_LIST(argtype);
 
 	if (callee_symbol) {
 		check_call_symbol_permission(expr->pos, containing_fn, callee_symbol);
 	} else {
-		check_permission_expression(fn, containing_fn);
+		check_permission_expression(expr->fn, containing_fn);
 		warning(expr->pos, "function %s makes call to non-symbol function", show_ident(containing_fn->ident));
 	}
 }
@@ -638,7 +717,7 @@ static void propagate_permissions(struct symbol *sym)
 			/* and propagate it to each symbol */
 			struct symbol *other = sym;
 			do {
-				if (!has_permission(other, permission))
+				if (!has_permission(other->ctype.permissions, permission))
 					add_ptr_list(&other->ctype.permissions, permission);
 			} while ((other = other->same_symbol) != NULL);
 		} END_FOR_EACH_PTR(permission);
