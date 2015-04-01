@@ -576,10 +576,28 @@ static void check_permission_asm_statement(struct statement *stmt, struct symbol
 	} END_FOR_EACH_PTR(expr);
 }
 
+static struct symbol*
+get_function_return_type (struct symbol *fn)
+{
+	if (fn->type == SYM_NODE)
+		fn = fn->ctype.base_type;
+	assert(fn->type == SYM_FN);
+	return fn->ctype.base_type;
+}
+
 static void check_permission_return(struct statement *stmt, struct symbol *containing_fn)
 {
+	struct symbol *return_type, *value_symbol;
+
+	if (!stmt->expression)
+		return;
+
+	return_type = get_function_return_type(containing_fn);
 	check_permission_expression(stmt->expression, containing_fn);
-	/* FIXME: Check for function pointer return type. */
+
+	value_symbol = get_rhs_symbol(stmt->expression);
+	if (value_symbol)
+		check_call_symbol_permission(stmt->expression->pos, return_type, value_symbol);
 }
 
 static void check_permission_inlined_call(struct statement *stmt, struct symbol *containing_fn)

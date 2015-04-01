@@ -98,6 +98,19 @@ calls_good_argument (good_fn_t fn, int x)
 	return fn(x);
 }
 
+static good_fn_t GOOD
+returns_not_good_fn (void)
+{
+	return good_but_not_declared; /* bad */
+}
+
+static int GOOD
+calls_returned_not_good_fn (int x)
+{
+	good_fn_t fn = returns_not_good_fn();
+	return fn(x);
+}
+
 int
 main (void)
 {
@@ -141,26 +154,29 @@ permission.c:86:50: warning:   without permission good
 permission.c:92:18: warning: function calls_non_good_argument
 permission.c:92:18: warning:   calls function fn
 permission.c:92:18: warning:   without permission good
-permission.c:110:21: warning: function good_fn_ptr
-permission.c:110:21: warning:   calls function good_but_not_declared
-permission.c:110:21: warning:   without permission good
-permission.c:111:21: warning: function good_fn_ptr
-permission.c:111:21: warning:   calls function not_good_fn_ptr
-permission.c:111:21: warning:   without permission good
-permission.c:113:40: warning: function good_fn_ptr
-permission.c:113:40: warning:   calls function good_but_not_declared
-permission.c:113:40: warning:   without permission good
-permission.c:113:40: warning: function good_fn_ptr
-permission.c:113:40: warning:   calls function good_but_not_declared
-permission.c:113:40: warning:   without permission good
-permission.c:116:33: warning: function good_fn_ptr
-permission.c:116:33: warning:   calls function good_but_not_declared
-permission.c:116:33: warning:   without permission good
-permission.c:116:33: warning: function good_fn_ptr
-permission.c:116:33: warning:   calls function good_but_not_declared
-permission.c:116:33: warning:   without permission good
-permission.c:119:30: warning: function fn
-permission.c:119:30: warning:   calls function good_but_not_declared
-permission.c:119:30: warning:   without permission good
+permission.c:104:16: warning: function <noident>
+permission.c:104:16: warning:   calls function good_but_not_declared
+permission.c:104:16: warning:   without permission good
+permission.c:123:21: warning: function good_fn_ptr
+permission.c:123:21: warning:   calls function good_but_not_declared
+permission.c:123:21: warning:   without permission good
+permission.c:124:21: warning: function good_fn_ptr
+permission.c:124:21: warning:   calls function not_good_fn_ptr
+permission.c:124:21: warning:   without permission good
+permission.c:126:40: warning: function good_fn_ptr
+permission.c:126:40: warning:   calls function good_but_not_declared
+permission.c:126:40: warning:   without permission good
+permission.c:126:40: warning: function good_fn_ptr
+permission.c:126:40: warning:   calls function good_but_not_declared
+permission.c:126:40: warning:   without permission good
+permission.c:129:33: warning: function good_fn_ptr
+permission.c:129:33: warning:   calls function good_but_not_declared
+permission.c:129:33: warning:   without permission good
+permission.c:129:33: warning: function good_fn_ptr
+permission.c:129:33: warning:   calls function good_but_not_declared
+permission.c:129:33: warning:   without permission good
+permission.c:132:30: warning: function fn
+permission.c:132:30: warning:   calls function good_but_not_declared
+permission.c:132:30: warning:   without permission good
  * check-error-end
  */
